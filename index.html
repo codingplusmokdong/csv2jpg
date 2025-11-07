@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>CSV + 템플릿 업로드 → JPG 생성기 (수정판)</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <style>
+    body { font-family: sans-serif; margin: 40px; }
+    input { margin: 5px 0; }
+    button { margin-top: 10px; padding: 10px 20px; }
+    #preview img { width: 200px; margin: 5px; border:1px solid #ddd; }
+    /* 화면 밖으로 보내 렌더링은 되지만 보이지 않게 함 */
+    #hiddenContainer {
+      position: fixed;
+      left: -9999px;
+      top: 0;
+      width: auto;
+      height: auto;
+      visibility: hidden; /* 렌더되지만 안보임 */
+      overflow: visible;
+    }
+  </style>
+</head>
+<body>
+  <h2>CSV + 템플릿 업로드 → JPG 생성기 (수정판)</h2>
+
+  <label>템플릿 HTML: <input type="file" id="templateFile" accept=".html" /></label><br>
+  <label>CSV 파일: <input type="file" id="csvFile" accept=".csv" /></label><br>
+  <button id="generateBtn">이미지 생성</button>
+
+  <div id="preview"></div>
+  <div id="hiddenContainer"></div>
+
+  <script>
+    let csvData = null;
+    let templateHTML = "";
+    let requiredKeys = [];
+    let csvHeaders = [];
+    
+    // UI 요소
+    const preview = document.getElementById('preview');
+    const container = document.getElementById('hiddenContainer');
+    const generateBtn = document.getElementById('generateBtn');
+    
+    // 표시용 영역 추가
+    const infoArea = document.createElement('div');
+    infoArea.style.marginTop = '20px';
+    infoArea.innerHTML = `
+      <h3>템플릿 항목 & CSV 검사</h3>
+      <div id="templateKeys" style="margin-bottom:10px;"></div>
+      <div id="csvKeys" style="margin-bottom:10px;"></div>
+      <div id="matchResult" style="font-weight:bold;"></div>
+    `;
+    document.body.insertBefore(infoArea, preview);
+    
+    // 버튼 초기 비활성화
+    generateBtn.disabled = true;
+    
+    // CSV 업로드
+    document.getElementById('csvFile').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: function(results) {
+          csvData = results.data;
+          csvHeaders = results.meta.fields || [];
+          updateCSVKeysDisplay();
+          validateTemplateAndCSV();
+          alert(`${csvData.length}개의 행이 로드되었습니다.`);
+        },
+        error: function(err) {
+          alert("CSV 파싱 오류: " + err.message);
+        }
+      });
+    });
+    
+    // 템플릿 업로드
+    document.getElementById('templateFile').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        templateHTML = event.target.result;
+        requiredKeys = extractTemplateKeys(templateHTML);
+        updateTemplateKeysDisplay();
+        validateTemplateAndCSV();
+        alert("템플릿 파일이 로드되었습니다!\n템플릿은 단일 루트 요소(div 등)로 감싸져 있어야 합니다.");
+      };
+      reader.readAsText(file, "utf-8");
+    });
+    
+    // 템플릿에서 {{key}} 추출
+    function extractTemplateKeys(html) {
+      const matches = html.match(/{{\s*([\w-]+)\s*}}/g) || [];
+      return [...new Set(matches.map(m => m.replace(/{{\s*|\s*}}/g, '')))];
+    }
+    
+    // 표시용 UI 업데이트
+    function updateTemplateKeysDisplay() {
+      const box = document.getElementById('templateKeys');
+      if (requiredKeys.length === 0) {
+        box.innerHTML = "<b>템플릿 항목:</b> (없음)";
+      } else {
+        box.innerHTML = `<b>템플릿 항목:</b> ${requiredKeys.join(', ')}`;
+      }
+    }
+    
+    function updateCSVKeysDisplay() {
+      const box = document.getElementById('csvKeys');
+      if (csvHeaders.length === 0) {
+        box.innerHTML = "<b>CSV 열:</b> (없음)";
+      } else {
+        box.innerHTML = `<b>CSV 열:</b> ${csvHeaders.join(', ')}`;
+      }
+    }
+    
+    // 템플릿과 CSV 일치 여부 검사
+    function validateTemplateAndCSV() {
+      const resultBox = document.getElementById('matchResult');
+    
+      if (requiredKeys.length === 0 || csvHeaders.length === 0) {
+        resultBox.textContent = "템플릿 또는 CSV가 아직 로드되지 않았습니다.";
+        resultBox.style.color = "gray";
+        generateBtn.disabled = true;
+        return;
+      }
+    
+      const missing = requiredKeys.filter(k => !csvHeaders.includes(k));
+    
+      if (missing.length > 0) {
+        resultBox.innerHTML = `❌ 일치하지 않음: 누락된 항목 → ${missing.join(', ')}`;
+        resultBox.style.color = "red";
+        generateBtn.disabled = true;
+      } else {
+        resultBox.textContent = "✅ 템플릿과 CSV 항목이 일치합니다. 이미지 생성 가능!";
+        resultBox.style.color = "green";
+        generateBtn.disabled = false;
+      }
+    }
+    
+    // 템플릿 치환 함수
+    function fillTemplate(template, data) {
+      let html = template;
+      for (const key in data) {
+        const val = data[key] == null ? '' : String(data[key]);
+        const regex = new RegExp(`{{\\s*${escapeRegExp(key)}\\s*}}`, 'g');
+        html = html.replace(regex, val);
+      }
+      return html;
+    }
+    
+    function escapeRegExp(string) {
+      return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+    
+    // 요소 내부 이미지가 모두 로드될 때까지 대기
+    function waitForImages(root) {
+      const imgs = Array.from(root.querySelectorAll('img'));
+      if (imgs.length === 0) return Promise.resolve();
+      return Promise.all(imgs.map(img => new Promise(resolve => {
+        if (img.complete) return resolve();
+        img.addEventListener('load', resolve);
+        img.addEventListener('error', resolve);
+      })));
+    }
+    
+    // === 자동 압축 함수 (100KB 이하로 맞춤) ===
+    async function getCompressedImage(canvas, maxKB = 100) {
+      let quality = 0.9;
+      let imgData = canvas.toDataURL("image/jpeg", quality);
+      let sizeKB = Math.round((imgData.length * 3 / 4) / 1024);
+    
+      while (sizeKB > maxKB && quality > 0.1) {
+        quality -= 0.1;
+        imgData = canvas.toDataURL("image/jpeg", quality);
+        sizeKB = Math.round((imgData.length * 3 / 4) / 1024);
+      }
+    
+      console.log(`압축 완료: 품질=${quality.toFixed(1)}, 용량=${sizeKB}KB`);
+      return imgData;
+    }
+    
+    // 이미지 생성
+    generateBtn.addEventListener('click', async () => {
+      if (!csvData || csvData.length === 0) {
+        alert("CSV 파일을 먼저 업로드하세요.");
+        return;
+      }
+      if (!templateHTML) {
+        alert("템플릿 HTML 파일을 업로드하세요.");
+        return;
+      }
+    
+      preview.innerHTML = "";
+      container.innerHTML = "";
+    
+      for (let i = 0; i < csvData.length; i++) {
+        const row = csvData[i];
+        const filled = fillTemplate(templateHTML, row);
+        container.innerHTML = filled;
+        const element = container.firstElementChild;
+    
+        if (!element) {
+          alert("템플릿에 유효한 루트 요소가 없습니다. <div>로 감싸서 업로드 해주세요.");
+          return;
+        }
+    
+        container.style.visibility = "visible";
+        container.style.position = "absolute";
+        container.style.left = "0";
+        container.style.top = "0";
+        container.style.zIndex = "-1";
+    
+        try {
+          if (document.fonts && document.fonts.ready) {
+            await document.fonts.ready;
+          }
+        } catch (e) {}
+        await waitForImages(element);
+        await new Promise(r => setTimeout(r, 100));
+    
+        const canvas = await html2canvas(element, {
+          useCORS: true,
+          scale: 1.2, // 해상도 조절 (기존 2 → 1.2)
+          backgroundColor: '#ffffff',
+        });
+    
+        // 100KB 이하로 자동 압축
+        const imgData = await getCompressedImage(canvas, 100);
+    
+        const img = document.createElement('img');
+        img.src = imgData;
+        img.alt = row.name || `image_${i+1}`;
+        preview.appendChild(img);
+    
+        const a = document.createElement('a');
+        a.href = imgData;
+        const safeName = (row.name ? String(row.name).replace(/[^\w\-_. ]+/g, '') : `image`);
+        a.download = `${safeName}_${i+1}.jpg`;
+        a.click();
+    
+        container.style.visibility = "hidden";
+        container.style.left = "-9999px";
+        container.style.position = "fixed";
+        container.innerHTML = "";
+      }
+    
+      alert("모든 JPG 생성이 완료되었습니다!");
+    });
+    </script>
+    
+    
+
+
+</body>
+</html>
