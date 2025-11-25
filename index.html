@@ -201,6 +201,8 @@
         const row = csvData[i];
         const filled = fillTemplate(templateHTML, row);
         container.innerHTML = filled;
+
+        await document.fonts.ready;
         const element = container.firstElementChild;
     
         if (!element) {
@@ -257,3 +259,4 @@
 
 </body>
 </html>
+
