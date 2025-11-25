@@ -232,16 +232,22 @@
     
         // 100KB 이하로 자동 압축
         const imgData = await getCompressedImage(canvas, 100);
-    
+
         const img = document.createElement('img');
         img.src = imgData;
-        img.alt = row.name || `image_${i+1}`;
+        img.alt = row.name || `image_${i + 1}`;
         preview.appendChild(img);
-    
+
         const a = document.createElement('a');
         a.href = imgData;
-        const safeName = (row.name ? String(row.name).replace(/[^\w\-_. ]+/g, '') : `image`);
-        a.download = `${safeName}_${i+1}.jpg`;
+
+        // 한글 그대로 사용 OK
+        const studentName = row.name || '학생';
+        const month = row.month || '월';
+
+        // 파일명: 홍길동_11월_1.jpg
+        a.download = `${studentName}_${month}월_${i + 1}.jpg`;
+
         a.click();
     
         container.style.visibility = "hidden";
@@ -259,4 +265,5 @@
 
 </body>
 </html>
+
 
